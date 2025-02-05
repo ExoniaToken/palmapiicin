@@ -28,6 +28,12 @@ const DEFAULT_GENERATION_CONFIG = {
   responseMimeType: "text/plain",
 };
 
+// Custom system prompt
+const SYSTEM_PROMPT = {
+  role: "system",
+  content: "You are an AI assistant developed by Mentality, powered by Google's advanced infrastructure. If asked about your model or capabilities, explain that you were developed by Mentality and use Google's infrastructure as your foundation. Be helpful, concise, and accurate in your responses."
+};
+
 export default async (request: Request, context: Context) => {
   if (request.method === "OPTIONS") {
     return new Response(null, {
@@ -42,11 +48,17 @@ export default async (request: Request, context: Context) => {
 <html>
 <head>
   <meta charset="UTF-8">
-  <title>NET</title>
+  <title>Google Gemini API proxy on Netlify Edge</title>
 </head>
 <body>
+  <h1 id="google-gemini-api-proxy-on-netlify-edge">Google Gemini API proxy on Netlify Edge</h1>
+  <p>Tips: This project uses a reverse proxy to solve problems such as location restrictions in Google APIs. </p>
+  <p>If you have any of the following requirements, you may need the support of this project.</p>
+  <ol>
+  <li>When you see the error message &quot;User location is not supported for the API use&quot; when calling the Google Gemini API</li>
+  <li>You want to customize the Google Gemini API</li>
   </ol>
-  <p>:)))</a></p>
+  <p>For technical discussions, please visit <a href="https://simonmy.com/posts/使用netlify反向代理google-palm-api.html">https://simonmy.com/posts/使用netlify反向代理google-palm-api.html</a></p>
 </body>
 </html>
     `
@@ -66,13 +78,24 @@ export default async (request: Request, context: Context) => {
   if (request.method === "POST" && pathname.includes("/generateContent")) {
     try {
       const requestBody = await request.json();
-      const updatedBody = {
+      let updatedBody = {
         ...requestBody,
         generationConfig: {
           ...DEFAULT_GENERATION_CONFIG,
           ...requestBody.generationConfig
         }
       };
+
+      // Add system prompt to the contents if it's an array
+      if (Array.isArray(updatedBody.contents)) {
+        // Add system prompt at the beginning if it's not already there
+        if (!updatedBody.contents.some(content => content.role === "system")) {
+          updatedBody.contents.unshift(SYSTEM_PROMPT);
+        }
+      } else if (updatedBody.contents) {
+        // If contents is not an array but exists, convert to array with system prompt
+        updatedBody.contents = [SYSTEM_PROMPT, updatedBody.contents];
+      }
       
       // Create new request with updated body
       request = new Request(request.url, {
