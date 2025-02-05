@@ -1,9 +1,13 @@
+[build]
+  publish = "/"
+
 [[headers]]
   for = "/*"
-    [headers.values]
+  [headers.values]
     Access-Control-Allow-Origin = "*"
-    Access-Control-Allow-Headers = "*"
     Access-Control-Allow-Methods = "*"
+    Access-Control-Allow-Headers = "*"
+
 [[redirects]]
   from = "/*"
   to = "/.netlify/functions/proxy"
