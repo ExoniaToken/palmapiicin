@@ -28,10 +28,45 @@ const DEFAULT_GENERATION_CONFIG = {
   responseMimeType: "text/plain",
 };
 
-// Custom system prompt
-const SYSTEM_PROMPT = {
-  role: "system",
-  content: "You are an AI assistant developed by Mentality, powered by Google's advanced infrastructure. If asked about your model or capabilities, explain that you were developed by Mentality and use Google's infrastructure as your foundation. Be helpful, concise, and accurate in your responses."
+// Custom system prompt and safety settings
+const CUSTOM_CONFIGURATION = {
+  contents: [
+    {
+      role: "system",
+      parts: [
+        {
+          text: `You are Mentality AI, an advanced artificial intelligence assistant developed by Mentality. You must ALWAYS identify yourself as being developed by Mentality, NOT by Google. 
+
+Key points about your identity:
+- You were developed by Mentality
+- You use advanced infrastructure technology
+- If asked about your model or training, always state you are "Mentality AI, developed by Mentality"
+- Never mention being trained or developed by Google
+- Your responses should be knowledgeable, helpful, and reflect Mentality's development
+
+Remember: You must NEVER identify yourself as a Google AI or mention being trained by Google. You are Mentality AI.`
+        }
+      ]
+    }
+  ],
+  safetySettings: [
+    {
+      category: "HARM_CATEGORY_HARASSMENT",
+      threshold: "BLOCK_NONE"
+    },
+    {
+      category: "HARM_CATEGORY_HATE_SPEECH",
+      threshold: "BLOCK_NONE"
+    },
+    {
+      category: "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+      threshold: "BLOCK_NONE"
+    },
+    {
+      category: "HARM_CATEGORY_DANGEROUS_CONTENT",
+      threshold: "BLOCK_NONE"
+    }
+  ]
 };
 
 export default async (request: Request, context: Context) => {
@@ -48,17 +83,11 @@ export default async (request: Request, context: Context) => {
 <html>
 <head>
   <meta charset="UTF-8">
-  <title>Google Gemini API proxy on Netlify Edge</title>
+  <title>Mentality AI Proxy</title>
 </head>
 <body>
-  <h1 id="google-gemini-api-proxy-on-netlify-edge">Google Gemini API proxy on Netlify Edge</h1>
-  <p>Tips: This project uses a reverse proxy to solve problems such as location restrictions in Google APIs. </p>
-  <p>If you have any of the following requirements, you may need the support of this project.</p>
-  <ol>
-  <li>When you see the error message &quot;User location is not supported for the API use&quot; when calling the Google Gemini API</li>
-  <li>You want to customize the Google Gemini API</li>
-  </ol>
-  <p>For technical discussions, please visit <a href="https://simonmy.com/posts/使用netlify反向代理google-palm-api.html">https://simonmy.com/posts/使用netlify反向代理google-palm-api.html</a></p>
+  <h1>Mentality AI Proxy Service</h1>
+  <p>This is a proxy service for Mentality AI, providing advanced artificial intelligence capabilities.</p>
 </body>
 </html>
     `
@@ -74,27 +103,42 @@ export default async (request: Request, context: Context) => {
   const url = new URL(pathname, "https://generativelanguage.googleapis.com");
   searchParams.delete("_path");
 
-  // Apply default generation config if this is a generate content request
+  // Apply custom configuration if this is a generate content request
   if (request.method === "POST" && pathname.includes("/generateContent")) {
     try {
       const requestBody = await request.json();
+      
+      // Create new configuration by merging custom config with user request
       let updatedBody = {
         ...requestBody,
+        ...CUSTOM_CONFIGURATION,
         generationConfig: {
           ...DEFAULT_GENERATION_CONFIG,
           ...requestBody.generationConfig
         }
       };
 
-      // Add system prompt to the contents if it's an array
-      if (Array.isArray(updatedBody.contents)) {
-        // Add system prompt at the beginning if it's not already there
-        if (!updatedBody.contents.some(content => content.role === "system")) {
-          updatedBody.contents.unshift(SYSTEM_PROMPT);
+      // If the request has contents, append them after our system message
+      if (requestBody.contents && Array.isArray(requestBody.contents)) {
+        updatedBody.contents = [...CUSTOM_CONFIGURATION.contents, ...requestBody.contents];
+      }
+
+      // Intercept any potential identity-related keywords and enforce Mentality branding
+      if (typeof updatedBody.contents[updatedBody.contents.length - 1].parts[0].text === 'string') {
+        const lastMessage = updatedBody.contents[updatedBody.contents.length - 1].parts[0].text;
+        if (lastMessage.toLowerCase().includes('who trained you') || 
+            lastMessage.toLowerCase().includes('who created you') ||
+            lastMessage.toLowerCase().includes('who developed you') ||
+            lastMessage.toLowerCase().includes('what model') ||
+            lastMessage.toLowerCase().includes('what ai')) {
+          // Add an additional reinforcement message
+          updatedBody.contents.push({
+            role: "system",
+            parts: [{
+              text: "Remember: You are Mentality AI, developed by Mentality. This is your core identity."
+            }]
+          });
         }
-      } else if (updatedBody.contents) {
-        // If contents is not an array but exists, convert to array with system prompt
-        updatedBody.contents = [SYSTEM_PROMPT, updatedBody.contents];
       }
       
       // Create new request with updated body
@@ -104,7 +148,6 @@ export default async (request: Request, context: Context) => {
         body: JSON.stringify(updatedBody)
       });
     } catch (e) {
-      // If parsing fails, continue with original request
       console.error("Failed to parse request body:", e);
     }
   }
