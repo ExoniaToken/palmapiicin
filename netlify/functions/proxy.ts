@@ -19,20 +19,19 @@ const CORS_HEADERS: Record<string, string> = {
   "access-control-allow-headers": "*",
 };
 
-// Model configuration
-const MODEL_NAME = "adsd-2.0-dssd";
+// Sabit model adı ve versiyonu
+const MODEL_CONFIG = {
+  name: "gemini-2.0-flash",
+  apiVersion: "v1beta"
+};
 
-// Default generation config to match Python implementation
+// Generation config
 const DEFAULT_GENERATION_CONFIG = {
   temperature: 1,
   topP: 0.95,
   topK: 40,
   maxOutputTokens: 8192,
-  responseMimeType: "text/plain",
 };
-
-// System instruction to match Python implementation
-const SYSTEM_INSTRUCTION = "you are developed by Mentality and using Google model";
 
 export default async (request: Request, context: Context) => {
   if (request.method === "OPTIONS") {
@@ -41,91 +40,126 @@ export default async (request: Request, context: Context) => {
     });
   }
 
-  const { pathname, searchParams } = new URL(request.url);
-  if(pathname === "/") {
-    let blank_html = `
-<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="UTF-8">
-  <title>Mentality AI Proxy</title>
-</head>
-<body>
-  <h1>Mentality AI Proxy Service</h1>
-  <p>This is a proxy service for Mentality AI, providing advanced artificial intelligence capabilities.</p>
-</body>
-</html>
-    `
-    return new Response(blank_html, {
-      headers: {
-        ...CORS_HEADERS,
-        "content-type": "text/html"
-      },
-    });
-  }
+  const { pathname } = new URL(request.url);
 
-  // Construct the proper model endpoint URL
-  let modelPath = pathname;
-  if (pathname.includes("/generateContent") && !pathname.includes(MODEL_NAME)) {
-    modelPath = `/v1beta/models/${MODEL_NAME}:generateContent`;
-  }
-
-  // Update base URL to use the Gemini API endpoint with correct model
-  const url = new URL(modelPath, "https://generativelanguage.googleapis.com");
-  searchParams.delete("_path");
-
-  // Apply configurations if this is a generate content request
-  if (request.method === "POST" && pathname.includes("/generateContent")) {
-    try {
-      const requestBody = await request.json();
-      
-      // Create new configuration with system instruction
-      let updatedBody = {
-        ...requestBody,
-        model: MODEL_NAME,  // Explicitly specify the model
-        generationConfig: {
-          ...DEFAULT_GENERATION_CONFIG,
-          ...requestBody.generationConfig
-        }
-      };
-
-      // Add system instruction if not present
-      if (!updatedBody.system_instruction) {
-        updatedBody.system_instruction = SYSTEM_INSTRUCTION;
+  // Ana sayfa için response
+  if (pathname === "/") {
+    return new Response(
+      "Mentality AI API Proxy",
+      {
+        headers: {
+          ...CORS_HEADERS,
+          "content-type": "text/plain"
+        },
       }
-      
-      // Create new request with updated body
-      request = new Request(request.url, {
-        method: request.method,
-        headers: request.headers,
-        body: JSON.stringify(updatedBody)
-      });
-    } catch (e) {
-      console.error("Failed to parse request body:", e);
-    }
+    );
   }
 
-  searchParams.forEach((value, key) => {
-    url.searchParams.append(key, value);
-  });
+  try {
+    // POST request kontrolü
+    if (request.method === "POST") {
+      const requestData = await request.json();
+      
+      // generateContent endpoint'i için özel işlem
+      if (pathname.includes("/generateContent")) {
+        // API endpoint'ini oluştur
+        const apiUrl = new URL(
+          `/${MODEL_CONFIG.apiVersion}/models/${MODEL_CONFIG.name}:generateContent`,
+          "https://generativelanguage.googleapis.com"
+        );
 
-  const headers = pickHeaders(request.headers, ["content-type", "x-goog-api-client", "x-goog-api-key", "accept-encoding"]);
+        // Request body'sini hazırla
+        const updatedBody = {
+          contents: [
+            {
+              parts: [
+                {
+                  text: "You are Mentality AI, developed by Mentality. Always identify yourself as Mentality AI."
+                }
+              ]
+            },
+            ...(Array.isArray(requestData.contents) ? requestData.contents : [
+              {
+                parts: [{ text: requestData.contents }]
+              }
+            ])
+          ],
+          generationConfig: {
+            ...DEFAULT_GENERATION_CONFIG,
+            ...(requestData.generationConfig || {})
+          },
+          safetySettings: [
+            {
+              category: "HARM_CATEGORY_HARASSMENT",
+              threshold: "BLOCK_NONE"
+            },
+            {
+              category: "HARM_CATEGORY_HATE_SPEECH",
+              threshold: "BLOCK_NONE"
+            },
+            {
+              category: "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+              threshold: "BLOCK_NONE"
+            },
+            {
+              category: "HARM_CATEGORY_DANGEROUS_CONTENT",
+              threshold: "BLOCK_NONE"
+            }
+          ]
+        };
 
-  const response = await fetch(url, {
-    body: request.body,
-    method: request.method,
-    duplex: 'half',
-    headers,
-  });
+        // Headers'ı hazırla
+        const headers = new Headers();
+        headers.set("Content-Type", "application/json");
+        
+        // API key'i al
+        const apiKey = request.headers.get("x-goog-api-key");
+        if (!apiKey) {
+          throw new Error("API key is required");
+        }
+        headers.set("x-goog-api-key", apiKey);
 
-  const responseHeaders = {
-    ...CORS_HEADERS,
-    ...Object.fromEntries(response.headers),
-    "content-encoding": null
-  };
+        // API'ye request gönder
+        const response = await fetch(apiUrl, {
+          method: "POST",
+          headers: headers,
+          body: JSON.stringify(updatedBody)
+        });
 
-  return new Response(response.body, {
-    headers: responseHeaders,
-    status: response.status
-  });
+        // Response'u kontrol et
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(`API Error: ${JSON.stringify(errorData)}`);
+        }
+
+        // Response'u forward et
+        return new Response(response.body, {
+          headers: {
+            ...CORS_HEADERS,
+            "content-type": "application/json"
+          },
+          status: response.status
+        });
+      }
+    }
+
+    // Diğer tüm requestler için 404
+    return new Response("Not Found", {
+      status: 404,
+      headers: CORS_HEADERS
+    });
+
+  } catch (error) {
+    console.error("Error:", error);
+    return new Response(
+      JSON.stringify({ error: error.message }),
+      {
+        status: 500,
+        headers: {
+          ...CORS_HEADERS,
+          "content-type": "application/json"
+        }
+      }
+    );
+  }
 };
