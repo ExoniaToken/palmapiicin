@@ -19,8 +19,16 @@ const CORS_HEADERS: Record<string, string> = {
   "access-control-allow-headers": "*",
 };
 
-export default async (request: Request, context: Context) => {
+// Default generation config for gemini-2.0-flash model
+const DEFAULT_GENERATION_CONFIG = {
+  temperature: 1,
+  topP: 0.95,
+  topK: 40,
+  maxOutputTokens: 8192,
+  responseMimeType: "text/plain",
+};
 
+export default async (request: Request, context: Context) => {
   if (request.method === "OPTIONS") {
     return new Response(null, {
       headers: CORS_HEADERS,
@@ -34,15 +42,15 @@ export default async (request: Request, context: Context) => {
 <html>
 <head>
   <meta charset="UTF-8">
-  <title>Google PaLM API proxy on Netlify Edge</title>
+  <title>Google Gemini API proxy on Netlify Edge</title>
 </head>
 <body>
-  <h1 id="google-palm-api-proxy-on-netlify-edge">Google PaLM API proxy on Netlify Edge</h1>
+  <h1 id="google-gemini-api-proxy-on-netlify-edge">Google Gemini API proxy on Netlify Edge</h1>
   <p>Tips: This project uses a reverse proxy to solve problems such as location restrictions in Google APIs. </p>
   <p>If you have any of the following requirements, you may need the support of this project.</p>
   <ol>
-  <li>When you see the error message &quot;User location is not supported for the API use&quot; when calling the Google PaLM API</li>
-  <li>You want to customize the Google PaLM API</li>
+  <li>When you see the error message &quot;User location is not supported for the API use&quot; when calling the Google Gemini API</li>
+  <li>You want to customize the Google Gemini API</li>
   </ol>
   <p>For technical discussions, please visit <a href="https://simonmy.com/posts/使用netlify反向代理google-palm-api.html">https://simonmy.com/posts/使用netlify反向代理google-palm-api.html</a></p>
 </body>
@@ -56,8 +64,33 @@ export default async (request: Request, context: Context) => {
     });
   }
 
+  // Update base URL to use the Gemini API endpoint
   const url = new URL(pathname, "https://generativelanguage.googleapis.com");
   searchParams.delete("_path");
+
+  // Apply default generation config if this is a generate content request
+  if (request.method === "POST" && pathname.includes("/generateContent")) {
+    try {
+      const requestBody = await request.json();
+      const updatedBody = {
+        ...requestBody,
+        generationConfig: {
+          ...DEFAULT_GENERATION_CONFIG,
+          ...requestBody.generationConfig
+        }
+      };
+      
+      // Create new request with updated body
+      request = new Request(request.url, {
+        method: request.method,
+        headers: request.headers,
+        body: JSON.stringify(updatedBody)
+      });
+    } catch (e) {
+      // If parsing fails, continue with original request
+      console.error("Failed to parse request body:", e);
+    }
+  }
 
   searchParams.forEach((value, key) => {
     url.searchParams.append(key, value);
