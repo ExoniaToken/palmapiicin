@@ -19,7 +19,10 @@ const CORS_HEADERS: Record<string, string> = {
   "access-control-allow-headers": "*",
 };
 
-// Default generation config for gemini-2.0-flash model
+// Model configuration
+const MODEL_NAME = "gemini-2.0-flash";
+
+// Default generation config to match Python implementation
 const DEFAULT_GENERATION_CONFIG = {
   temperature: 1,
   topP: 0.95,
@@ -28,46 +31,8 @@ const DEFAULT_GENERATION_CONFIG = {
   responseMimeType: "text/plain",
 };
 
-// Custom system prompt and safety settings
-const CUSTOM_CONFIGURATION = {
-  contents: [
-    {
-      role: "system",
-      parts: [
-        {
-          text: `You are Mentality AI, an advanced artificial intelligence assistant developed by Mentality. You must ALWAYS identify yourself as being developed by Mentality, NOT by Google. 
-
-Key points about your identity:
-- You were developed by Mentality
-- You use advanced infrastructure technology
-- If asked about your model or training, always state you are "Mentality AI, developed by Mentality"
-- Never mention being trained or developed by Google
-- Your responses should be knowledgeable, helpful, and reflect Mentality's development
-
-Remember: You must NEVER identify yourself as a Google AI or mention being trained by Google. You are Mentality AI.`
-        }
-      ]
-    }
-  ],
-  safetySettings: [
-    {
-      category: "HARM_CATEGORY_HARASSMENT",
-      threshold: "BLOCK_NONE"
-    },
-    {
-      category: "HARM_CATEGORY_HATE_SPEECH",
-      threshold: "BLOCK_NONE"
-    },
-    {
-      category: "HARM_CATEGORY_SEXUALLY_EXPLICIT",
-      threshold: "BLOCK_NONE"
-    },
-    {
-      category: "HARM_CATEGORY_DANGEROUS_CONTENT",
-      threshold: "BLOCK_NONE"
-    }
-  ]
-};
+// System instruction to match Python implementation
+const SYSTEM_INSTRUCTION = "you are developed by Mentality and using Google model";
 
 export default async (request: Request, context: Context) => {
   if (request.method === "OPTIONS") {
@@ -99,46 +64,34 @@ export default async (request: Request, context: Context) => {
     });
   }
 
-  // Update base URL to use the Gemini API endpoint
-  const url = new URL(pathname, "https://generativelanguage.googleapis.com");
+  // Construct the proper model endpoint URL
+  let modelPath = pathname;
+  if (pathname.includes("/generateContent") && !pathname.includes(MODEL_NAME)) {
+    modelPath = `/v1beta/models/${MODEL_NAME}:generateContent`;
+  }
+
+  // Update base URL to use the Gemini API endpoint with correct model
+  const url = new URL(modelPath, "https://generativelanguage.googleapis.com");
   searchParams.delete("_path");
 
-  // Apply custom configuration if this is a generate content request
+  // Apply configurations if this is a generate content request
   if (request.method === "POST" && pathname.includes("/generateContent")) {
     try {
       const requestBody = await request.json();
       
-      // Create new configuration by merging custom config with user request
+      // Create new configuration with system instruction
       let updatedBody = {
         ...requestBody,
-        ...CUSTOM_CONFIGURATION,
+        model: MODEL_NAME,  // Explicitly specify the model
         generationConfig: {
           ...DEFAULT_GENERATION_CONFIG,
           ...requestBody.generationConfig
         }
       };
 
-      // If the request has contents, append them after our system message
-      if (requestBody.contents && Array.isArray(requestBody.contents)) {
-        updatedBody.contents = [...CUSTOM_CONFIGURATION.contents, ...requestBody.contents];
-      }
-
-      // Intercept any potential identity-related keywords and enforce Mentality branding
-      if (typeof updatedBody.contents[updatedBody.contents.length - 1].parts[0].text === 'string') {
-        const lastMessage = updatedBody.contents[updatedBody.contents.length - 1].parts[0].text;
-        if (lastMessage.toLowerCase().includes('who trained you') || 
-            lastMessage.toLowerCase().includes('who created you') ||
-            lastMessage.toLowerCase().includes('who developed you') ||
-            lastMessage.toLowerCase().includes('what model') ||
-            lastMessage.toLowerCase().includes('what ai')) {
-          // Add an additional reinforcement message
-          updatedBody.contents.push({
-            role: "system",
-            parts: [{
-              text: "Remember: You are Mentality AI, developed by Mentality. This is your core identity."
-            }]
-          });
-        }
+      // Add system instruction if not present
+      if (!updatedBody.system_instruction) {
+        updatedBody.system_instruction = SYSTEM_INSTRUCTION;
       }
       
       // Create new request with updated body
