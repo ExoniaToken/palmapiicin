@@ -20,7 +20,7 @@ const CORS_HEADERS: Record<string, string> = {
 };
 
 // Model configuration
-const MODEL_NAME = "gemini-2.0-flash";
+const MODEL_NAME = "adsd-2.0-dssd";
 
 // Default generation config to match Python implementation
 const DEFAULT_GENERATION_CONFIG = {
