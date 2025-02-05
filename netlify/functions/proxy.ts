@@ -4,102 +4,102 @@ const CORS_HEADERS: Record<string, string> = {
   "access-control-allow-origin": "*",
   "access-control-allow-methods": "*",
   "access-control-allow-headers": "*",
+  "content-type": "application/json",
 };
 
-// API ve model konfigürasyonu
+// API Configuration
 const API_CONFIG = {
-  baseUrl: "https://generativelanguage.googleapis.com/v1beta/models",
+  baseUrl: "https://generativelanguage.googleapis.com",
+  version: "v1beta",
   model: "gemini-2.0-flash",
 };
 
-// Generation config
-const DEFAULT_GENERATION_CONFIG = {
-  temperature: 1,
-  topP: 0.95,
-  topK: 40,
-  maxOutputTokens: 8192,
-};
-
 export default async (request: Request, context: Context) => {
+  // Handle CORS preflight requests
   if (request.method === "OPTIONS") {
-    return new Response(null, {
-      headers: CORS_HEADERS,
-    });
+    return new Response(null, { headers: CORS_HEADERS });
   }
 
   try {
     if (request.method === "POST") {
-      // API key'i headers'dan al
+      // Get API key from headers
       const apiKey = request.headers.get("x-goog-api-key");
       if (!apiKey) {
-        throw new Error("API key is required");
+        throw new Error("API key is required in x-goog-api-key header");
       }
 
-      // Request body'yi al
+      // Get request body
       const requestData = await request.json();
 
-      // API endpoint URL'ini oluştur
-      const apiUrl = `${API_CONFIG.baseUrl}/${API_CONFIG.model}:generateContent?key=${apiKey}`;
+      // Construct the API URL
+      const apiUrl = `${API_CONFIG.baseUrl}/${API_CONFIG.version}/models/${API_CONFIG.model}:generateContent?key=${apiKey}`;
 
-      // Mentality prompt'unu ekle
-      const updatedBody = {
-        contents: [
-          {
-            parts: [{
-              text: "You are Mentality AI, developed by Mentality. Always identify yourself as Mentality AI."
-            }]
-          },
-          ...(requestData.contents || [{
-            parts: [{
-              text: requestData.prompt || "Hello"
-            }]
-          }])
-        ],
-        generationConfig: {
-          ...DEFAULT_GENERATION_CONFIG,
-          ...(requestData.generationConfig || {})
-        }
+      // Format the request body properly
+      const formattedBody = {
+        contents: [{
+          parts: [{
+            text: "You are Mentality AI, developed by Mentality. Always identify yourself as Mentality AI."
+          }]
+        }]
       };
 
-      // API'ye istek at
+      // Add the user's message
+      if (typeof requestData === "string") {
+        // If the input is just a string
+        formattedBody.contents.push({
+          parts: [{ text: requestData }]
+        });
+      } else if (requestData.contents) {
+        // If the input is already in the correct format
+        formattedBody.contents.push(...requestData.contents);
+      } else if (requestData.prompt) {
+        // If the input uses a 'prompt' field
+        formattedBody.contents.push({
+          parts: [{ text: requestData.prompt }]
+        });
+      }
+
+      console.log('Request URL:', apiUrl);
+      console.log('Request Body:', JSON.stringify(formattedBody, null, 2));
+
+      // Make the API request
       const response = await fetch(apiUrl, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify(updatedBody)
+        body: JSON.stringify(formattedBody)
       });
 
+      // Handle API response
       if (!response.ok) {
         const errorText = await response.text();
+        console.error('API Error Response:', errorText);
         throw new Error(`API Error: ${response.status} - ${errorText}`);
       }
 
-      // Response'u forward et
-      return new Response(response.body, {
-        headers: {
-          ...CORS_HEADERS,
-          "content-type": "application/json"
-        }
+      const responseData = await response.json();
+      
+      return new Response(JSON.stringify(responseData), {
+        headers: CORS_HEADERS
       });
     }
 
-    // POST değilse 405 Method Not Allowed
-    return new Response("Method Not Allowed", {
+    return new Response(JSON.stringify({ error: "Method not allowed" }), {
       status: 405,
       headers: CORS_HEADERS
     });
 
   } catch (error) {
-    console.error("Error:", error);
+    console.error('Error in edge function:', error);
     return new Response(
-      JSON.stringify({ error: error.message }),
+      JSON.stringify({ 
+        error: error.message,
+        timestamp: new Date().toISOString()
+      }),
       {
         status: 500,
-        headers: {
-          ...CORS_HEADERS,
-          "content-type": "application/json"
-        }
+        headers: CORS_HEADERS
       }
     );
   }
