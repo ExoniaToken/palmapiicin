@@ -7,7 +7,6 @@ const CORS_HEADERS: Record<string, string> = {
   "content-type": "application/json",
 };
 
-// API Configuration
 const API_CONFIG = {
   baseUrl: "https://generativelanguage.googleapis.com",
   version: "v1beta",
@@ -15,46 +14,54 @@ const API_CONFIG = {
 };
 
 export default async (request: Request, context: Context) => {
-  // Handle CORS preflight requests
   if (request.method === "OPTIONS") {
     return new Response(null, { headers: CORS_HEADERS });
   }
 
   try {
     if (request.method === "POST") {
-      // Get API key from headers
       const apiKey = request.headers.get("x-goog-api-key");
       if (!apiKey) {
         throw new Error("API key is required in x-goog-api-key header");
       }
 
-      // Get request body
       const requestData = await request.json();
-
-      // Construct the API URL
       const apiUrl = `${API_CONFIG.baseUrl}/${API_CONFIG.version}/models/${API_CONFIG.model}:generateContent?key=${apiKey}`;
 
-      // Format the request body properly
+      // Sistem mesajını ve kullanıcı mesajını doğru rollerle ekle
       const formattedBody = {
-        contents: [{
-          parts: [{
-            text: "You are Mentality AI, developed by Mentality. Always identify yourself as Mentality AI."
-          }]
-        }]
+        contents: [
+          {
+            role: "user",
+            parts: [{
+              text: "You are Mentality AI, developed by Mentality. Always identify yourself as Mentality AI."
+            }]
+          },
+          {
+            role: "model",
+            parts: [{
+              text: "I am Mentality AI, developed by Mentality. I understand and will always identify myself as Mentality AI."
+            }]
+          }
+        ]
       };
 
-      // Add the user's message
+      // Kullanıcı mesajını ekle
       if (typeof requestData === "string") {
-        // If the input is just a string
         formattedBody.contents.push({
+          role: "user",
           parts: [{ text: requestData }]
         });
       } else if (requestData.contents) {
-        // If the input is already in the correct format
-        formattedBody.contents.push(...requestData.contents);
+        // Her mesaja role ekle
+        const userContents = requestData.contents.map(content => ({
+          role: "user",
+          parts: content.parts
+        }));
+        formattedBody.contents.push(...userContents);
       } else if (requestData.prompt) {
-        // If the input uses a 'prompt' field
         formattedBody.contents.push({
+          role: "user",
           parts: [{ text: requestData.prompt }]
         });
       }
@@ -62,7 +69,6 @@ export default async (request: Request, context: Context) => {
       console.log('Request URL:', apiUrl);
       console.log('Request Body:', JSON.stringify(formattedBody, null, 2));
 
-      // Make the API request
       const response = await fetch(apiUrl, {
         method: "POST",
         headers: {
@@ -71,7 +77,6 @@ export default async (request: Request, context: Context) => {
         body: JSON.stringify(formattedBody)
       });
 
-      // Handle API response
       if (!response.ok) {
         const errorText = await response.text();
         console.error('API Error Response:', errorText);
